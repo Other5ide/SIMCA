@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Monitoreo en Tiempo Real</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    canvas { max-width: 700px; margin-bottom: 40px; }
+  </style>
+</head>
+<body>
+  <h1>Monitor Ambiental en Tiempo Real</h1>
+
+  <h3>Temperatura (°C)</h3>
+  <canvas id="tempChart"></canvas>
+
+  <h3>Decibeles (dB)</h3>
+  <canvas id="dbChart"></canvas>
+
+  <script>
+    const socket = io();
+
+    const maxDataPoints = 20;
+    const timeLabels = [];
+
+    const tempData = [];
+    const dbData = [];
+
+    const tempChart = new Chart(document.getElementById("tempChart"), {
+      type: 'line',
+      data: {
+        labels: timeLabels,
+        datasets: [{
+          label: 'Temperatura',
+          data: tempData,
+          borderColor: 'red',
+          fill: false
+        }]
+      },
+      options: {
+        animation: false,
+        scales: {
+          y: { beginAtZero: true },
+          x: { ticks: { autoSkip: true, maxTicksLimit: 10 } }
+        }
+      }
+    });
+
+    const dbChart = new Chart(document.getElementById("dbChart"), {
+      type: 'line',
+      data: {
+        labels: timeLabels,
+        datasets: [{
+          label: 'Decibeles',
+          data: dbData,
+          borderColor: 'blue',
+          fill: false
+        }]
+      },
+      options: {
+        animation: false,
+        scales: {
+          y: { beginAtZero: true },
+          x: { ticks: { autoSkip: true, maxTicksLimit: 10 } }
+        }
+      }
+    });
+
+    socket.on("new_data", (data) => {
+      const time = data.timestamp;
+
+      if (!timeLabels.includes(time)) {
+        timeLabels.push(time);
+        if (timeLabels.length > maxDataPoints) timeLabels.shift();
+      }
+
+      if (data.type === "temperature") {
+        tempData.push(data.value);
+        if (tempData.length > maxDataPoints) tempData.shift();
+        tempChart.update();
+      }
+
+      if (data.type === "decibels") {
+        dbData.push(data.value);
+        if (dbData.length > maxDataPoints) dbData.shift();
+        dbChart.update();
+      }
+    });
+  </script>
+</body>
+</html>
