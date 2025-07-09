@@ -1,74 +1,101 @@
+#include "SparkFun_SHTC3.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <DHT.h>
 
-// Configuración del sensor DHT
-#define DHTPIN 4         // Pin al que está conectado el sensor
-#define DHTTYPE DHT22    // Puede ser DHT11 o DHT22
-DHT dht(DHTPIN, DHTTYPE);
+SHTC3 g_shtc3;
 
-// Datos de WiFi
-// Cambia estos datos por los de tu red WiFi
 const char* ssid = "WIFI-DCI";
 const char* password = "DComInf_2K24";
-
-// URL del servidor REST
 const char* serverUrl = "http://3.221.0.222:8081/data";
+
+void errorDecoder(SHTC3_Status_TypeDef message) {
+  switch (message) {
+    case SHTC3_Status_Nominal:
+      Serial.print("Nominal");
+      break;
+    case SHTC3_Status_Error:
+      Serial.print("Error");
+      break;
+    case SHTC3_Status_CRC_Fail:
+      Serial.print("CRC Fail");
+      break;
+    default:
+      Serial.print("Unknown return code");
+      break;
+  }
+}
+
+void sendTemperature(float temp) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(serverUrl);
+    http.addHeader("Content-Type", "application/json");
+
+    String payload = "{\"device\":\"rak\", \"type\":\"temperature\", \"value\":" + String(temp, 1) + "}";
+
+    int httpResponseCode = http.POST(payload);
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.print("HTTP Response code: ");
+      Serial.println(httpResponseCode);
+      Serial.println("Server response: " + response);
+    } else {
+      Serial.print("Error on sending POST: ");
+      Serial.println(httpResponseCode);
+    }
+
+    http.end();
+  } else {
+    Serial.println("WiFi not connected");
+  }
+}
+
+void shtc3_read_data(void) {
+  float Temperature = 0;
+
+  g_shtc3.update();
+  if (g_shtc3.lastStatus == SHTC3_Status_Nominal) {
+    Temperature = g_shtc3.toDegC();
+    Serial.print("T = ");
+    Serial.print(Temperature);
+    Serial.println(" °C");
+
+    sendTemperature(Temperature);
+  } else {
+    Serial.print("Update failed, error: ");
+    errorDecoder(g_shtc3.lastStatus);
+    Serial.println();
+  }
+}
 
 void setup() {
   Serial.begin(115200);
-  dht.begin();
+  delay(100);
 
-  // Conectar a WiFi
   WiFi.begin(ssid, password);
-  Serial.print("Conectando a WiFi...");
+  Serial.print("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\nConectado a WiFi!");
-}
+  Serial.println();
+  Serial.println("WiFi connected");
 
-bool send_data(String s1) {
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    if (http.begin(serverUrl)) {
-      http.addHeader("Content-Type", "application/json");
+  Wire.begin();
+  Serial.print("Beginning sensor. Result = ");
+  errorDecoder(g_shtc3.begin());
+  Wire.setClock(400000);
+  Serial.println();
 
-      Serial.print("Enviando: ");
-      Serial.println(s1);
-
-      int httpResponseCode = http.POST(s1);
-      if (httpResponseCode == 200) {
-        Serial.println("POST exitoso");
-        http.end();
-        return true;
-      } else {
-        Serial.print("Error en POST, código: ");
-        Serial.println(httpResponseCode);
-        http.end();
-        return false;
-      }
-    } else {
-      Serial.println("Error al iniciar conexión HTTP");
-      return false;
-    }
+  if (g_shtc3.passIDcrc) {
+    Serial.print("ID Passed Checksum. Device ID: 0b");
+    Serial.println(g_shtc3.ID, BIN);
   } else {
-    Serial.println("WiFi no conectado");
-    return false;
+    Serial.println("ID Checksum Failed.");
   }
 }
 
 void loop() {
-  float temp = dht.readTemperature();  // Leer temperatura en °C
-
-  if (isnan(temp)) {
-    Serial.println("Error al leer temperatura");
-  } else {
-    // Crear el payload JSON
-    String jsonPayload = "{\"device\":\"rak\", \"type\":\"temperature\", \"value\":" + String(temp, 1) + "}";
-    send_data(jsonPayload);
-  }
-
-  delay(10000); // Esperar 10 segundos
+  shtc3_read_data();
+  delay(5000);  // Intervalo de lectura y envío (ajustable)
 }
